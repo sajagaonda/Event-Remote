@@ -655,6 +655,23 @@
     { id:"sfx-impact", name:"임팩트", emoji:"💥", key:"9", mode:"restart" }
   ];
 
+  // event_remote_v2.html과 같은 위치의 sound_effect 폴더를 자동으로 읽습니다.
+  // 파일명(확장자 제외)이 아래 이름 중 하나면 해당 효과음 버튼에 자동 연결됩니다.
+  // 예: sound_effect/박수1.mp3 -> 1번 '박수', sound_effect/박수2.mp3 -> 2번 '큰 박수'
+  const SFX_FOLDER = "./sound_effect/";
+  const AUTO_SFX_NAMES = {
+    "sfx-applause":     ["박수1", "박수"],
+    "sfx-big-applause": ["박수2", "큰박수", "큰 박수"],
+    "sfx-cheer":        ["환호"],
+    "sfx-drumroll":     ["두구두구", "드럼롤"],
+    "sfx-tada":         ["짜잔"],
+    "sfx-correct":      ["정답"],
+    "sfx-wrong":        ["땡", "오답"],
+    "sfx-ding":         ["띵동"],
+    "sfx-impact":       ["임팩트"]
+  };
+  const AUTO_AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".ogg", ".aac", ".flac"];
+
   const BGM_SLOTS = [
     { id:"bgm-opening", name:"오프닝", key:"Q" },
     { id:"bgm-break", name:"휴식", key:"W" },
@@ -678,8 +695,10 @@
     settings: { ...DEFAULT_SETTINGS },
     sfxSlots: SFX_DEFAULTS.map(s => ({...s})),
     db: null,
-    blobUrls: new Map(),
+    blobUrls: new Map(), // 수동 업로드 Blob URL 또는 sound_effect 상대 URL
     fileNames: new Map(),
+    sourceKinds: new Map(), // id -> "manual" | "auto"
+    objectUrlIds: new Set(), // revokeObjectURL이 필요한 수동 업로드 id
     activeSfx: new Map(), // Audio -> { slotId, baseVolume, fadeTimer }
     lastPlayedAt: new Map(),
     currentBgmId: null,
@@ -823,10 +842,95 @@
     });
   }
 
+  function clearAudioSource(id) {
+    if (state.objectUrlIds.has(id) && state.blobUrls.has(id)) {
+      try { URL.revokeObjectURL(state.blobUrls.get(id)); } catch {}
+    }
+    state.objectUrlIds.delete(id);
+    state.blobUrls.delete(id);
+    state.fileNames.delete(id);
+    state.sourceKinds.delete(id);
+  }
+
   function setBlobUrl(id, blob, name) {
-    if (state.blobUrls.has(id)) URL.revokeObjectURL(state.blobUrls.get(id));
+    clearAudioSource(id);
     state.blobUrls.set(id, URL.createObjectURL(blob));
     state.fileNames.set(id, name || "오디오 파일");
+    state.sourceKinds.set(id, "manual");
+    state.objectUrlIds.add(id);
+  }
+
+  function setAutoUrl(id, url, name) {
+    if (state.blobUrls.has(id)) return false; // 직접 연결한 파일이 있으면 그것을 우선합니다.
+    state.blobUrls.set(id, url);
+    state.fileNames.set(id, name || "자동 연결 음원");
+    state.sourceKinds.set(id, "auto");
+    return true;
+  }
+
+  function buildAutoCandidates(slotId) {
+    const names = AUTO_SFX_NAMES[slotId] || [];
+    const candidates = [];
+    names.forEach(baseName => {
+      AUTO_AUDIO_EXTENSIONS.forEach(ext => {
+        const fileName = baseName + ext;
+        candidates.push({
+          fileName,
+          url: new URL(SFX_FOLDER + fileName, document.baseURI).href
+        });
+      });
+    });
+    return candidates;
+  }
+
+  function probeAudioUrl(url, timeoutMs=1800) {
+    return new Promise(resolve => {
+      const audio = new Audio();
+      let settled = false;
+      const finish = ok => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        audio.removeEventListener("loadedmetadata", onReady);
+        audio.removeEventListener("canplay", onReady);
+        audio.removeEventListener("error", onError);
+        try {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+        } catch {}
+        resolve(ok);
+      };
+      const onReady = () => finish(true);
+      const onError = () => finish(false);
+      const timer = setTimeout(() => finish(false), timeoutMs);
+
+      audio.preload = "metadata";
+      audio.addEventListener("loadedmetadata", onReady, { once:true });
+      audio.addEventListener("canplay", onReady, { once:true });
+      audio.addEventListener("error", onError, { once:true });
+      audio.src = url;
+      audio.load();
+    });
+  }
+
+  async function autoConnectSfxSlot(slotId) {
+    if (state.blobUrls.has(slotId)) return false;
+
+    for (const candidate of buildAutoCandidates(slotId)) {
+      if (await probeAudioUrl(candidate.url)) {
+        setAutoUrl(slotId, candidate.url, candidate.fileName);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function autoConnectSfxFolder() {
+    const results = await Promise.all(
+      SFX_DEFAULTS.map(slot => autoConnectSfxSlot(slot.id))
+    );
+    return results.filter(Boolean).length;
   }
 
   function makeFileInput(slotId) {
@@ -883,6 +987,7 @@
 
     state.sfxSlots.forEach(slot => {
       const hasFile = state.blobUrls.has(slot.id);
+      const isAutoFile = state.sourceKinds.get(slot.id) === "auto";
       const pad = document.createElement("div");
       pad.className = "sound-pad" + (hasFile ? "" : " unassigned");
       pad.dataset.slotId = slot.id;
@@ -895,11 +1000,11 @@
         <span class="emoji">${escapeHtml(slot.emoji || "🔊")}</span>
         <span class="name">${escapeHtml(slot.name)}</span>
         <span class="mode">${escapeHtml(modeLabel(slot.mode))}</span>
-        <span class="file-status">${hasFile ? escapeHtml(state.fileNames.get(slot.id)) : "파일 미연결"}</span>
+        <span class="file-status">${hasFile ? escapeHtml((isAutoFile ? "자동 · " : "") + state.fileNames.get(slot.id)) : "파일 미연결"}</span>
         <span class="slot-actions">
           <button type="button" data-action="assign">${hasFile ? "파일 변경" : "파일 연결"}</button>
           <button type="button" data-action="edit">편집</button>
-          ${hasFile ? '<button type="button" data-action="remove">해제</button>' : ""}
+          ${hasFile && !isAutoFile ? '<button type="button" data-action="remove">해제</button>' : ""}
         </span>
       `;
 
@@ -984,11 +1089,11 @@
       }
 
       if (state.db) await dbDeleteAudio(id);
-      if (state.blobUrls.has(id)) URL.revokeObjectURL(state.blobUrls.get(id));
-      state.blobUrls.delete(id);
-      state.fileNames.delete(id);
+      clearAudioSource(id);
+
+      const autoRestored = AUTO_SFX_NAMES[id] ? await autoConnectSfxSlot(id) : false;
       renderAll();
-      toast("음원 연결을 해제했습니다.");
+      toast(autoRestored ? "직접 연결을 해제하고 폴더 음원으로 복귀했습니다." : "음원 연결을 해제했습니다.");
     } catch (err) {
       console.error(err);
       toast("음원 해제에 실패했습니다.");
@@ -1536,9 +1641,7 @@
         if (state.db) await dbClearAudio();
       } catch {}
 
-      state.blobUrls.forEach(url => URL.revokeObjectURL(url));
-      state.blobUrls.clear();
-      state.fileNames.clear();
+      [...state.blobUrls.keys()].forEach(id => clearAudioSource(id));
 
       localStorage.removeItem("eventRemoteSettings");
       localStorage.removeItem("eventRemoteMemo");
@@ -1552,10 +1655,11 @@
 
       $("#memo").value = "";
       applySettingsToUI();
+      await autoConnectSfxFolder();
       renderAll();
 
       $("#settingsDialog").close();
-      toast("초기화했습니다.");
+      toast("초기화했습니다. sound_effect 폴더 음원은 자동 연결됩니다.");
     });
 
     $("#closeSlotEditorBtn").addEventListener("click", () => $("#slotEditorDialog").close());
@@ -1638,7 +1742,12 @@
     });
 
     window.addEventListener("beforeunload", () => {
-      state.blobUrls.forEach(url => URL.revokeObjectURL(url));
+      state.objectUrlIds.forEach(id => {
+        const url = state.blobUrls.get(id);
+        if (url) {
+          try { URL.revokeObjectURL(url); } catch {}
+        }
+      });
     });
   }
 
@@ -1654,12 +1763,18 @@
       rows.forEach(row => setBlobUrl(row.id, row.blob, row.name));
       $("#dbStatus").textContent = "ON";
       $("#dbStatus").classList.remove("off");
-      renderAll();
     } catch (err) {
       console.error(err);
       $("#dbStatus").textContent = "OFF";
       $("#dbStatus").classList.add("off");
       toast("브라우저 영구 저장 기능을 사용할 수 없습니다.");
+    }
+
+    const autoConnectedCount = await autoConnectSfxFolder();
+    renderAll();
+
+    if (autoConnectedCount > 0) {
+      toast(`sound_effect 폴더에서 효과음 ${autoConnectedCount}개 자동 연결`);
     }
   }
 

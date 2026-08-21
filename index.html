@@ -679,6 +679,400 @@
     { id:"bgm-ending", name:"엔딩", key:"R" }
   ];
 
+  // event_remote_v2.html과 같은 위치의 bgm 폴더를 자동으로 읽습니다.
+  // 예: bgm/오프닝.mp4 -> Q, bgm/휴식.mp4 -> W
+  const BGM_FOLDER = "./bgm/";
+  const AUTO_BGM_NAMES = {
+    "bgm-opening": ["오프닝", "opening"],
+    "bgm-break":   ["휴식", "break"],
+    "bgm-awards":  ["시상식", "awards"],
+    "bgm-ending":  ["엔딩", "ending"]
+  };
+  // MP4는 브라우저가 내부 오디오 코덱을 지원해야 재생됩니다. AAC 오디오가 가장 무난합니다.
+  const AUTO_BGM_EXTENSIONS = [".mp4", ".m4a", ".mp3", ".wav", ".ogg", ".aac", ".flac"];
+
+  /*
+    ★ BGM 링크 입력 위치 ★
+    아래 따옴표 안에 YouTube 영상 주소 또는 직접 재생 가능한 음원/MP4 URL을 붙여 넣으세요.
+
+    지원하는 YouTube 주소 예:
+    https://www.youtube.com/watch?v=XXXXXXXXXXX
+    https://youtu.be/XXXXXXXXXXX
+    https://www.youtube.com/shorts/XXXXXXXXXXX
+
+    빈 문자열("")이면 기존처럼 ./bgm 폴더의 파일을 자동 탐색합니다.
+  */
+  const BGM_LINKS = {
+    "bgm-opening": "https://www.youtube.com/watch?v=JionHVxdvdg&t=1226s", // Q · 오프닝
+    "bgm-break":   "https://www.youtube.com/watch?v=deBDNTsZ1co&t=376s", // W · 휴식
+    "bgm-awards":  "https://www.youtube.com/watch?v=Tzz0HAznCiw&t=739s", // E · 시상식
+    "bgm-ending":  "https://www.youtube.com/watch?v=xdoxSzcP-r8&t=50s"  // R · 엔딩
+  };
+
+  function extractYouTubeVideoId(value="") {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+
+    try {
+      const url = new URL(raw);
+      const host = url.hostname.replace(/^www\./, "").toLowerCase();
+
+      if (host === "youtu.be") {
+        return url.pathname.split("/").filter(Boolean)[0] || null;
+      }
+
+      if (host === "youtube.com" || host === "m.youtube.com" || host === "music.youtube.com") {
+        if (url.pathname === "/watch") return url.searchParams.get("v");
+
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (["embed", "shorts", "live"].includes(parts[0])) return parts[1] || null;
+      }
+    } catch {}
+
+    return null;
+  }
+
+  function isYouTubeUrl(value="") {
+    return !!extractYouTubeVideoId(value);
+  }
+
+  let youtubeApiPromise = null;
+  function loadYouTubeIframeApi() {
+    if (window.YT?.Player) return Promise.resolve(window.YT);
+    if (youtubeApiPromise) return youtubeApiPromise;
+
+    youtubeApiPromise = new Promise((resolve, reject) => {
+      const previousReady = window.onYouTubeIframeAPIReady;
+      let done = false;
+
+      const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timeout);
+        resolve(window.YT);
+      };
+
+      window.onYouTubeIframeAPIReady = () => {
+        try { previousReady?.(); } catch {}
+        finish();
+      };
+
+      let script = document.querySelector('script[src="https://www.youtube.com/iframe_api"]');
+      if (!script) {
+        script = document.createElement("script");
+        script.src = "https://www.youtube.com/iframe_api";
+        script.async = true;
+        script.onerror = () => reject(new Error("YouTube IFrame API load failed"));
+        document.head.appendChild(script);
+      }
+
+      const poll = setInterval(() => {
+        if (window.YT?.Player) {
+          clearInterval(poll);
+          finish();
+        }
+      }, 100);
+
+      const timeout = setTimeout(() => {
+        clearInterval(poll);
+        reject(new Error("YouTube IFrame API timeout"));
+      }, 12000);
+    });
+
+    return youtubeApiPromise;
+  }
+
+  // HTMLAudioElement과 YouTube IFrame Player를 같은 방식으로 제어하기 위한 래퍼.
+  // 기존 BGM 페이드/DUCK/진행률/정지 로직을 그대로 유지합니다.
+  class BgmMedia extends EventTarget {
+    constructor() {
+      super();
+      this.audio = new Audio();
+      this._src = "";
+      this._kind = "audio";
+      this._volume = 1;
+      this._ytPlayer = null;
+      this._ytContainer = null;
+      this._ytReadyPromise = null;
+      this._ytPaused = true;
+      this._ytTimer = null;
+      this._pendingSeek = null;
+
+      ["timeupdate","loadedmetadata","play","pause","ended","error"].forEach(type => {
+        this.audio.addEventListener(type, () => this.dispatchEvent(new Event(type)));
+      });
+    }
+
+    get src() { return this._src; }
+    set src(value) {
+      this._src = String(value || "").trim();
+      this._kind = isYouTubeUrl(this._src) ? "youtube" : "audio";
+    }
+
+    get paused() {
+      return this._kind === "youtube" ? this._ytPaused : this.audio.paused;
+    }
+
+    get currentTime() {
+      if (this._kind !== "youtube") return this.audio.currentTime || 0;
+      try { return Number(this._ytPlayer?.getCurrentTime?.()) || 0; } catch { return 0; }
+    }
+
+    set currentTime(value) {
+      const time = Math.max(0, Number(value) || 0);
+      if (this._kind !== "youtube") {
+        try { this.audio.currentTime = time; } catch {}
+        return;
+      }
+
+      this._pendingSeek = time;
+      try {
+        if (this._ytPlayer?.seekTo) {
+          this._ytPlayer.seekTo(time, true);
+          this._pendingSeek = null;
+        }
+      } catch {}
+    }
+
+    get duration() {
+      if (this._kind !== "youtube") return Number(this.audio.duration) || 0;
+      try { return Number(this._ytPlayer?.getDuration?.()) || 0; } catch { return 0; }
+    }
+
+    get volume() {
+      return this._kind === "youtube" ? this._volume : this.audio.volume;
+    }
+
+    set volume(value) {
+      const v = Math.max(0, Math.min(1, Number(value) || 0));
+      this._volume = v;
+
+      if (this._kind !== "youtube") {
+        this.audio.volume = v;
+        return;
+      }
+
+      try { this._ytPlayer?.setVolume?.(Math.round(v * 100)); } catch {}
+    }
+
+    load() {
+      if (!this._src) {
+        this._destroyYouTube();
+        this.audio.removeAttribute("src");
+        try { this.audio.load(); } catch {}
+        return;
+      }
+
+      if (this._kind !== "youtube") {
+        this._destroyYouTube();
+        this.audio.src = this._src;
+        this.audio.volume = this._volume;
+        this.audio.preload = "auto";
+        this.audio.load();
+        return;
+      }
+
+      this.audio.pause();
+      this.audio.removeAttribute("src");
+      try { this.audio.load(); } catch {}
+      this._prepareYouTube();
+    }
+
+    play() {
+      if (this._kind !== "youtube") {
+        this.audio.volume = this._volume;
+        return this.audio.play();
+      }
+
+      return this._ensureYouTube().then(player => {
+        player.setVolume(Math.round(this._volume * 100));
+        if (this._pendingSeek !== null) {
+          player.seekTo(this._pendingSeek, true);
+          this._pendingSeek = null;
+        }
+        player.playVideo();
+      });
+    }
+
+    pause() {
+      if (this._kind !== "youtube") {
+        this.audio.pause();
+        return;
+      }
+
+      try { this._ytPlayer?.pauseVideo?.(); } catch {}
+      if (!this._ytPlayer) {
+        this._ytPaused = true;
+        this._stopYouTubeTimer();
+        this.dispatchEvent(new Event("pause"));
+      }
+    }
+
+    removeAttribute(name) {
+      if (name !== "src") return;
+      this.pause();
+      this._src = "";
+      this._kind = "audio";
+      this._pendingSeek = null;
+      this._destroyYouTube();
+      this.audio.removeAttribute("src");
+    }
+
+    _makeYouTubeContainer() {
+      if (this._ytContainer?.isConnected) return this._ytContainer;
+
+      const mount = document.createElement("div");
+      mount.style.position = "fixed";
+      mount.style.left = "-9999px";
+      mount.style.top = "-9999px";
+      mount.style.width = "2px";
+      mount.style.height = "2px";
+      mount.style.opacity = "0.01";
+      mount.style.pointerEvents = "none";
+      mount.setAttribute("aria-hidden", "true");
+      document.body.appendChild(mount);
+      this._ytContainer = mount;
+      return mount;
+    }
+
+    _prepareYouTube() {
+      this._destroyYouTube();
+      this._ytPaused = true;
+
+      const videoId = extractYouTubeVideoId(this._src);
+      if (!videoId) {
+        this.dispatchEvent(new Event("error"));
+        return Promise.reject(new Error("Invalid YouTube URL"));
+      }
+
+      const mount = this._makeYouTubeContainer();
+
+      this._ytReadyPromise = loadYouTubeIframeApi().then(YT => {
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          const fail = err => {
+            if (settled) return;
+            settled = true;
+            reject(err instanceof Error ? err : new Error("YouTube player error"));
+          };
+
+          try {
+            this._ytPlayer = new YT.Player(mount, {
+              width: "2",
+              height: "2",
+              videoId,
+              playerVars: {
+                autoplay: 0,
+                controls: 0,
+                disablekb: 1,
+                playsinline: 1,
+                rel: 0
+              },
+              events: {
+                onReady: event => {
+                  event.target.setVolume(Math.round(this._volume * 100));
+
+                  if (this._pendingSeek !== null) {
+                    event.target.seekTo(this._pendingSeek, true);
+                    this._pendingSeek = null;
+                  }
+
+                  this.dispatchEvent(new Event("loadedmetadata"));
+                  this.dispatchEvent(new Event("timeupdate"));
+
+                  if (!settled) {
+                    settled = true;
+                    resolve(event.target);
+                  }
+                },
+                onStateChange: event => this._handleYouTubeState(event),
+                onError: event => {
+                  console.error("YouTube player error:", event.data);
+                  this.dispatchEvent(new Event("error"));
+                  fail(new Error("YouTube 영상을 재생할 수 없습니다."));
+                }
+              }
+            });
+          } catch (err) {
+            fail(err);
+          }
+        });
+      }).catch(err => {
+        console.error(err);
+        this.dispatchEvent(new Event("error"));
+        throw err;
+      });
+
+      return this._ytReadyPromise;
+    }
+
+    _ensureYouTube() {
+      if (this._ytPlayer && this._ytReadyPromise) return this._ytReadyPromise;
+      return this._prepareYouTube();
+    }
+
+    _handleYouTubeState(event) {
+      const YT = window.YT;
+      if (!YT?.PlayerState) return;
+
+      if (event.data === YT.PlayerState.PLAYING) {
+        const wasPaused = this._ytPaused;
+        this._ytPaused = false;
+        this._startYouTubeTimer();
+        if (wasPaused) this.dispatchEvent(new Event("play"));
+        return;
+      }
+
+      if (event.data === YT.PlayerState.PAUSED) {
+        const wasPlaying = !this._ytPaused;
+        this._ytPaused = true;
+        this._stopYouTubeTimer();
+        if (wasPlaying) this.dispatchEvent(new Event("pause"));
+        this.dispatchEvent(new Event("timeupdate"));
+        return;
+      }
+
+      if (event.data === YT.PlayerState.ENDED) {
+        this._ytPaused = true;
+        this._stopYouTubeTimer();
+        this.dispatchEvent(new Event("timeupdate"));
+        this.dispatchEvent(new Event("ended"));
+        return;
+      }
+
+      if (event.data === YT.PlayerState.CUED) {
+        this.dispatchEvent(new Event("loadedmetadata"));
+        this.dispatchEvent(new Event("timeupdate"));
+      }
+    }
+
+    _startYouTubeTimer() {
+      this._stopYouTubeTimer();
+      this._ytTimer = setInterval(() => {
+        this.dispatchEvent(new Event("timeupdate"));
+      }, 250);
+    }
+
+    _stopYouTubeTimer() {
+      if (this._ytTimer) clearInterval(this._ytTimer);
+      this._ytTimer = null;
+    }
+
+    _destroyYouTube() {
+      this._stopYouTubeTimer();
+
+      try { this._ytPlayer?.destroy?.(); } catch {}
+      this._ytPlayer = null;
+      this._ytReadyPromise = null;
+      this._ytPaused = true;
+
+      if (this._ytContainer?.isConnected) {
+        try { this._ytContainer.remove(); } catch {}
+      }
+      this._ytContainer = null;
+    }
+  }
+
   const DEFAULT_SETTINGS = {
     sfxVolume: 80,
     bgmVolume: 45,
@@ -702,7 +1096,7 @@
     activeSfx: new Map(), // Audio -> { slotId, baseVolume, fadeTimer }
     lastPlayedAt: new Map(),
     currentBgmId: null,
-    bgmAudio: new Audio(),
+    bgmAudio: new BgmMedia(),
     bgmFadeTimer: null,
     bgmDuckRampTimer: null,
     masterFading: false,
@@ -868,7 +1262,33 @@
     return true;
   }
 
-  function buildAutoCandidates(slotId) {
+  function setLinkedUrl(id, url, name) {
+    clearAudioSource(id);
+    state.blobUrls.set(id, String(url || "").trim());
+    state.fileNames.set(id, name || "링크 BGM");
+    state.sourceKinds.set(id, "link");
+  }
+
+  function connectConfiguredBgmLinks() {
+    let count = 0;
+
+    BGM_SLOTS.forEach(slot => {
+      const url = String(BGM_LINKS[slot.id] || "").trim();
+      if (!url) return;
+
+      const label = isYouTubeUrl(url)
+        ? `YouTube · ${slot.name}`
+        : `링크 · ${slot.name}`;
+
+      // 코드에 입력한 링크는 저장돼 있던 BGM 파일보다 우선합니다.
+      setLinkedUrl(slot.id, url, label);
+      count += 1;
+    });
+
+    return count;
+  }
+
+  function buildAutoSfxCandidates(slotId) {
     const names = AUTO_SFX_NAMES[slotId] || [];
     const candidates = [];
     names.forEach(baseName => {
@@ -877,6 +1297,21 @@
         candidates.push({
           fileName,
           url: new URL(SFX_FOLDER + fileName, document.baseURI).href
+        });
+      });
+    });
+    return candidates;
+  }
+
+  function buildAutoBgmCandidates(slotId) {
+    const names = AUTO_BGM_NAMES[slotId] || [];
+    const candidates = [];
+    names.forEach(baseName => {
+      AUTO_BGM_EXTENSIONS.forEach(ext => {
+        const fileName = baseName + ext;
+        candidates.push({
+          fileName,
+          url: new URL(BGM_FOLDER + fileName, document.baseURI).href
         });
       });
     });
@@ -917,7 +1352,7 @@
   async function autoConnectSfxSlot(slotId) {
     if (state.blobUrls.has(slotId)) return false;
 
-    for (const candidate of buildAutoCandidates(slotId)) {
+    for (const candidate of buildAutoSfxCandidates(slotId)) {
       if (await probeAudioUrl(candidate.url)) {
         setAutoUrl(slotId, candidate.url, candidate.fileName);
         return true;
@@ -933,10 +1368,29 @@
     return results.filter(Boolean).length;
   }
 
+  async function autoConnectBgmSlot(slotId) {
+    if (state.blobUrls.has(slotId)) return false;
+
+    for (const candidate of buildAutoBgmCandidates(slotId)) {
+      if (await probeAudioUrl(candidate.url)) {
+        setAutoUrl(slotId, candidate.url, candidate.fileName);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  async function autoConnectBgmFolder() {
+    const results = await Promise.all(
+      BGM_SLOTS.map(slot => autoConnectBgmSlot(slot.id))
+    );
+    return results.filter(Boolean).length;
+  }
+
   function makeFileInput(slotId) {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac";
+    input.accept = "audio/*,video/mp4,.mp3,.wav,.m4a,.mp4,.ogg,.aac,.flac";
     input.hidden = true;
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
@@ -1045,6 +1499,9 @@
 
     BGM_SLOTS.forEach(slot => {
       const hasFile = state.blobUrls.has(slot.id);
+      const sourceKind = state.sourceKinds.get(slot.id);
+      const isAutoFile = sourceKind === "auto";
+      const isLinkedFile = sourceKind === "link";
       const card = document.createElement("div");
       card.className = "bgm-card" + (state.currentBgmId === slot.id ? " active" : "");
       card.innerHTML = `
@@ -1052,11 +1509,11 @@
           <span class="bgm-name">${slot.name}</span>
           <span class="keycap">${slot.key}</span>
         </div>
-        <div class="bgm-file">${hasFile ? escapeHtml(state.fileNames.get(slot.id)) : "파일 미연결"}</div>
+        <div class="bgm-file">${hasFile ? escapeHtml((isAutoFile ? "자동 · " : isLinkedFile ? "" : "") + state.fileNames.get(slot.id)) : "파일 미연결"}</div>
         <div class="bgm-actions">
           <button type="button" data-bgm-action="select">${state.currentBgmId === slot.id ? "선택됨" : "선택"}</button>
           <button type="button" data-bgm-action="assign">${hasFile ? "변경" : "연결"}</button>
-          ${hasFile ? '<button type="button" data-bgm-action="remove">해제</button>' : ""}
+          ${hasFile && !isAutoFile && !isLinkedFile ? '<button type="button" data-bgm-action="remove">해제</button>' : ""}
         </div>
       `;
 
@@ -1091,7 +1548,10 @@
       if (state.db) await dbDeleteAudio(id);
       clearAudioSource(id);
 
-      const autoRestored = AUTO_SFX_NAMES[id] ? await autoConnectSfxSlot(id) : false;
+      let autoRestored = false;
+      if (AUTO_SFX_NAMES[id]) autoRestored = await autoConnectSfxSlot(id);
+      if (AUTO_BGM_NAMES[id]) autoRestored = await autoConnectBgmSlot(id);
+
       renderAll();
       toast(autoRestored ? "직접 연결을 해제하고 폴더 음원으로 복귀했습니다." : "음원 연결을 해제했습니다.");
     } catch (err) {
@@ -1335,7 +1795,7 @@
 
   function selectBgm(id, autoplay=false) {
     if (!state.blobUrls.has(id)) {
-      toast("먼저 이 BGM 슬롯에 음원 파일을 연결하세요.");
+      toast("먼저 이 BGM 슬롯에 파일 또는 링크를 연결하세요.");
       return;
     }
 
@@ -1358,7 +1818,7 @@
     if (autoplay || wasPlaying) {
       state.bgmAudio.play().then(() => setBgmTargetVolume(true)).catch(err => {
         console.error(err);
-        toast("BGM을 재생할 수 없습니다.");
+        toast("BGM을 재생할 수 없습니다. YouTube 영상은 퍼가기 허용 여부도 확인하세요.");
       });
     }
   }
@@ -1374,7 +1834,7 @@
 
     if (state.bgmAudio.paused) {
       setBgmTargetVolume(false);
-      state.bgmAudio.play().then(() => setBgmTargetVolume(true)).catch(() => toast("BGM을 재생할 수 없습니다."));
+      state.bgmAudio.play().then(() => setBgmTargetVolume(true)).catch(() => toast("BGM을 재생할 수 없습니다. YouTube 퍼가기 제한 여부를 확인하세요."));
     } else {
       state.bgmAudio.pause();
     }
@@ -1655,11 +2115,15 @@
 
       $("#memo").value = "";
       applySettingsToUI();
-      await autoConnectSfxFolder();
+      connectConfiguredBgmLinks();
+      await Promise.all([
+        autoConnectSfxFolder(),
+        autoConnectBgmFolder()
+      ]);
       renderAll();
 
       $("#settingsDialog").close();
-      toast("초기화했습니다. sound_effect 폴더 음원은 자동 연결됩니다.");
+      toast("초기화했습니다. 효과음/BGM 폴더 음원은 자동 연결됩니다.");
     });
 
     $("#closeSlotEditorBtn").addEventListener("click", () => $("#slotEditorDialog").close());
@@ -1770,11 +2234,17 @@
       toast("브라우저 영구 저장 기능을 사용할 수 없습니다.");
     }
 
-    const autoConnectedCount = await autoConnectSfxFolder();
+    const linkedBgmCount = connectConfiguredBgmLinks();
+
+    const [autoSfxCount, autoBgmCount] = await Promise.all([
+      autoConnectSfxFolder(),
+      autoConnectBgmFolder()
+    ]);
     renderAll();
 
-    if (autoConnectedCount > 0) {
-      toast(`sound_effect 폴더에서 효과음 ${autoConnectedCount}개 자동 연결`);
+    const totalAuto = linkedBgmCount + autoSfxCount + autoBgmCount;
+    if (totalAuto > 0) {
+      toast(`연결 완료 · 효과음 ${autoSfxCount}개 / BGM 링크 ${linkedBgmCount}개 / BGM 파일 ${autoBgmCount}개`);
     }
   }
 

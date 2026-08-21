@@ -1,0 +1,1670 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Event Remote</title>
+  <style>
+    :root{
+      --bg:#0b0d10;
+      --panel:#14181d;
+      --panel-2:#1a2027;
+      --panel-3:#202832;
+      --line:#2b3541;
+      --text:#f3f6f9;
+      --muted:#9aa7b5;
+      --accent:#64a8ff;
+      --good:#63d49a;
+      --warn:#ffc65c;
+      --danger:#ff6868;
+      --radius:18px;
+      --shadow:0 14px 40px rgba(0,0,0,.24);
+    }
+
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;min-height:100%;
+      background:var(--bg);color:var(--text);
+      font-family:Inter, Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif
+    }
+    body{padding:18px}
+    button,input,textarea,select{font:inherit}
+    button{color:inherit}
+    input,textarea,select{color-scheme:dark}
+
+    .app{
+      width:100%;
+      min-height:calc(100vh - 36px);
+      display:flex;
+      flex-direction:column;
+      gap:16px;
+    }
+
+    .topbar{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto;
+      gap:16px;
+      align-items:center;
+      padding:16px 18px;
+      background:linear-gradient(180deg,var(--panel-2),var(--panel));
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      position:sticky;
+      top:10px;
+      z-index:20;
+      backdrop-filter:blur(12px);
+    }
+
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}
+    .brand-mark{
+      width:42px;height:42px;border-radius:13px;
+      display:grid;place-items:center;
+      background:linear-gradient(135deg,#2c72ff,#7b63ff);
+      font-weight:900;letter-spacing:.04em;
+      box-shadow:0 8px 24px rgba(89,115,255,.28);
+      flex:0 0 auto;
+    }
+    .brand h1{font-size:20px;margin:0 0 3px}
+    .brand p{margin:0;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+    .top-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+    .now-playing{
+      min-width:250px;
+      padding:9px 12px;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:#10141a;
+      color:var(--muted);
+      font-size:13px;
+    }
+    .now-playing strong{color:var(--text);font-weight:800}
+    .icon-btn,.small-btn{
+      border:1px solid var(--line);
+      background:var(--panel-2);
+      border-radius:12px;
+      cursor:pointer;
+      transition:.15s ease;
+    }
+    .icon-btn{width:42px;height:42px}
+    .small-btn{padding:9px 12px;font-size:13px}
+    .icon-btn:hover,.small-btn:hover{transform:translateY(-1px);border-color:#455466}
+
+    .layout{
+      display:grid;
+      grid-template-columns:minmax(0,2.15fr) minmax(300px,.85fr);
+      gap:16px;
+      align-items:start;
+      flex:1;
+    }
+
+    .stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+    .panel{
+      background:linear-gradient(180deg,var(--panel),#11151a);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      overflow:hidden;
+    }
+    .panel-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      padding:16px 18px;
+      border-bottom:1px solid var(--line);
+      flex-wrap:wrap;
+    }
+    .panel-title{display:flex;align-items:baseline;gap:10px;min-width:0;flex-wrap:wrap}
+    .panel-title h2{margin:0;font-size:16px}
+    .panel-title span{color:var(--muted);font-size:12px}
+    .panel-body{padding:16px 18px}
+
+    .head-actions{display:flex;gap:8px;flex-wrap:wrap}
+    .fade-btn{
+      border:1px solid #7e6e3e;
+      background:#2a2416;
+      color:#ffe4a4;
+      border-radius:11px;
+      padding:9px 12px;
+      cursor:pointer;
+      font-size:12px;
+      font-weight:800;
+    }
+
+    .pad-grid{
+      display:grid;
+      grid-template-columns:repeat(3,minmax(150px,1fr));
+      gap:14px;
+    }
+
+    .sound-pad{
+      position:relative;
+      min-height:158px;
+      border:1px solid #394655;
+      background:
+        radial-gradient(circle at 20% 0%, rgba(100,168,255,.12), transparent 40%),
+        linear-gradient(180deg,#202833,#171d24);
+      border-radius:16px;
+      padding:16px;
+      text-align:left;
+      cursor:pointer;
+      transition:transform .12s ease,border-color .12s ease,filter .12s ease,box-shadow .12s ease;
+      overflow:hidden;
+      user-select:none;
+      outline:none;
+    }
+    .sound-pad:hover{transform:translateY(-2px);border-color:#5b6d81}
+    .sound-pad:focus-visible{box-shadow:0 0 0 3px rgba(100,168,255,.28)}
+    .sound-pad:active,.sound-pad.playing{
+      transform:translateY(1px) scale(.995);
+      border-color:var(--accent);
+      box-shadow:0 0 0 2px rgba(100,168,255,.12) inset,0 0 28px rgba(100,168,255,.16);
+      filter:brightness(1.12);
+    }
+    .sound-pad.unassigned{opacity:.72}
+    .sound-pad .hotkey{
+      position:absolute;top:11px;right:11px;
+      padding:4px 7px;border-radius:8px;
+      border:1px solid #46566a;background:#10151b;color:#c5d0da;
+      font-size:11px;font-weight:800;
+    }
+    .sound-pad .emoji{font-size:32px;display:block;margin-bottom:13px;line-height:1}
+    .sound-pad .name{font-size:20px;font-weight:900;display:block;line-height:1.1}
+    .sound-pad .mode{
+      display:inline-block;
+      margin-top:8px;
+      color:#a8b6c5;
+      font-size:10px;
+      border:1px solid #344150;
+      background:#11171e;
+      border-radius:999px;
+      padding:4px 7px;
+    }
+    .sound-pad .file-status{
+      display:block;margin-top:8px;color:var(--muted);font-size:12px;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:6px
+    }
+    .slot-actions{
+      display:flex;gap:7px;margin-top:12px;
+      position:relative;z-index:2;flex-wrap:wrap;
+    }
+    .slot-actions button{
+      border:1px solid #3d4958;background:#111820;border-radius:9px;
+      padding:7px 9px;font-size:11px;cursor:pointer;color:#c8d2dc;
+    }
+    .slot-actions button:hover{border-color:#5f7084}
+
+    .bgm-list{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:12px}
+    .bgm-card{
+      border:1px solid var(--line);
+      background:var(--panel-2);
+      border-radius:14px;
+      padding:13px;
+    }
+    .bgm-card.active{border-color:#876fff;box-shadow:0 0 0 1px rgba(135,111,255,.2) inset}
+    .bgm-name-row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+    .bgm-name{font-weight:850}
+    .keycap{font-size:11px;color:#d4dbe4;border:1px solid #465263;background:#0f1419;border-radius:7px;padding:3px 6px}
+    .bgm-file{font-size:11px;color:var(--muted);margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .bgm-actions{display:flex;gap:7px;margin-top:11px}
+    .bgm-actions button{flex:1;border:1px solid #3b4654;background:#111820;border-radius:9px;padding:8px;font-size:12px;cursor:pointer}
+
+    .transport{
+      margin-top:14px;
+      padding:14px;
+      border:1px solid var(--line);
+      background:#0f1419;
+      border-radius:14px;
+    }
+    .transport-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .transport-title{font-weight:850;margin-right:auto;min-width:180px}
+    .transport button{border:1px solid #405064;background:#18212a;border-radius:10px;padding:9px 12px;cursor:pointer}
+    .transport button.fade{border-color:#7e6e3e;background:#2a2416;color:#ffe4a4}
+    .progress-row{display:grid;grid-template-columns:52px 1fr 52px;gap:10px;align-items:center;margin-top:12px;color:var(--muted);font-size:11px}
+    .progress{height:8px;background:#26303a;border-radius:999px;overflow:hidden}
+    .progress > i{display:block;height:100%;width:0;background:linear-gradient(90deg,#5f7cff,#9b6fff);border-radius:999px}
+
+    .control-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .control-box{border:1px solid var(--line);background:var(--panel-2);border-radius:14px;padding:14px}
+    .control-box h3{margin:0 0 11px;font-size:13px}
+    .range-row{display:grid;grid-template-columns:auto 1fr 52px;gap:10px;align-items:center;color:var(--muted)}
+    input[type="range"]{width:100%;accent-color:#7d83ff}
+
+    .memo{
+      width:100%;
+      min-height:210px;
+      resize:vertical;
+      border:1px solid #364351;
+      background:#0e1318;
+      color:var(--text);
+      border-radius:14px;
+      padding:14px;
+      outline:none;
+      line-height:1.6;
+    }
+    .memo:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(100,168,255,.08)}
+    .memo-footer{display:flex;justify-content:space-between;gap:12px;margin-top:10px;color:var(--muted);font-size:11px}
+
+    .soundcheck-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+    .test-btn{
+      border:1px solid #415066;background:#18212b;border-radius:12px;padding:14px 10px;
+      cursor:pointer;font-weight:800;
+    }
+    .test-btn:hover{border-color:#6e83a0}
+    .hint{margin:12px 0 0;color:var(--muted);font-size:12px;line-height:1.55}
+
+    .status-list{display:grid;gap:9px}
+    .status-item{
+      display:flex;align-items:center;justify-content:space-between;gap:12px;
+      padding:10px 11px;border:1px solid var(--line);background:#10151a;border-radius:11px;
+      font-size:12px;
+    }
+    .status-pill{padding:4px 8px;border-radius:999px;background:#19251f;color:#8be1ad;border:1px solid #2e5b3d}
+    .status-pill.off{background:#251919;color:#f0a0a0;border-color:#5b3030}
+    .status-pill.warn{background:#282315;color:#ffd875;border-color:#5b4a25}
+
+    .bottom-bar{
+      display:grid;
+      grid-template-columns:minmax(0,1fr) auto auto;
+      align-items:center;
+      gap:10px;
+      padding:14px 16px;
+      border:1px solid var(--line);
+      background:linear-gradient(180deg,#161c22,#11161b);
+      border-radius:var(--radius);
+      position:sticky;
+      bottom:10px;
+      z-index:18;
+      box-shadow:0 -10px 30px rgba(0,0,0,.2);
+    }
+    .shortcut-strip{color:var(--muted);font-size:12px;display:flex;gap:14px;flex-wrap:wrap}
+    .shortcut-strip b{color:#d9e0e8}
+    .master-fade{
+      min-width:160px;
+      border:1px solid #7a6130;
+      background:linear-gradient(180deg,#5c4823,#3d3018);
+      color:#ffe1a0;
+      border-radius:14px;
+      padding:14px 18px;
+      font-weight:900;
+      cursor:pointer;
+    }
+    .stop-all{
+      min-width:190px;
+      border:1px solid #a94141;
+      background:linear-gradient(180deg,#8b2f34,#682329);
+      border-radius:14px;
+      padding:14px 20px;
+      font-weight:950;
+      letter-spacing:.02em;
+      cursor:pointer;
+      box-shadow:0 8px 24px rgba(255,72,72,.18);
+    }
+    .stop-all:hover,.master-fade:hover{filter:brightness(1.12)}
+
+    dialog{
+      width:min(680px,calc(100vw - 30px));
+      border:1px solid var(--line);
+      background:#12171d;color:var(--text);
+      border-radius:18px;padding:0;
+      box-shadow:0 28px 80px rgba(0,0,0,.55)
+    }
+    dialog::backdrop{background:rgba(0,0,0,.68);backdrop-filter:blur(5px)}
+    .modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line)}
+    .modal-head h2{font-size:16px;margin:0}
+    .modal-body{padding:18px}
+    .setting{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:13px 0;border-bottom:1px solid #242d36}
+    .setting:last-child{border-bottom:0}
+    .setting label strong{display:block;font-size:13px}
+    .setting label span{display:block;color:var(--muted);font-size:11px;margin-top:4px;line-height:1.5}
+    .setting input[type="number"], .setting select, .editor-field input, .editor-field select{
+      background:#0c1116;color:var(--text);border:1px solid #3c4857;border-radius:9px;padding:9px;
+    }
+    .setting input[type="number"]{width:100px}
+    .setting select{min-width:130px}
+    .modal-foot{display:flex;justify-content:space-between;gap:10px;padding:14px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+    .danger-btn{border:1px solid #713636;background:#2a1719;color:#ffaaaa;border-radius:10px;padding:9px 12px;cursor:pointer}
+
+    .editor-grid{display:grid;grid-template-columns:110px 1fr;gap:12px 14px;align-items:center}
+    .editor-field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    .editor-field input,.editor-field select{width:100%}
+    .editor-icon input{text-align:center;font-size:22px}
+    .editor-note{
+      margin-top:14px;padding:12px;border-radius:12px;background:#0d1217;border:1px solid #27313b;color:var(--muted);font-size:12px;line-height:1.55
+    }
+
+    .toast{
+      position:fixed;left:50%;bottom:92px;transform:translate(-50%,18px);
+      opacity:0;pointer-events:none;z-index:60;
+      background:#eef4fb;color:#111820;border-radius:11px;padding:10px 14px;font-size:12px;font-weight:750;
+      transition:.22s ease;
+      box-shadow:0 10px 36px rgba(0,0,0,.32);
+    }
+    .toast.show{opacity:1;transform:translate(-50%,0)}
+
+    .hidden{display:none!important}
+
+    @media (max-width:1180px){
+      .layout{grid-template-columns:1fr}
+      .side-stack{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+      .bgm-list{grid-template-columns:repeat(2,minmax(150px,1fr))}
+    }
+    @media (max-width:860px){
+      body{padding:10px}
+      .app{min-height:calc(100vh - 20px);gap:10px}
+      .topbar{position:static;grid-template-columns:1fr;padding:14px}
+      .top-actions{justify-content:stretch}
+      .now-playing{min-width:0;flex:1}
+      .pad-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+      .sound-pad{min-height:145px;padding:14px}
+      .bgm-list{grid-template-columns:1fr 1fr}
+      .side-stack{display:flex}
+      .control-grid{grid-template-columns:1fr}
+      .bottom-bar{position:static;grid-template-columns:1fr 1fr}
+      .shortcut-strip{grid-column:1 / -1;justify-content:center}
+      .master-fade,.stop-all{width:100%;min-width:0}
+    }
+    @media (max-width:560px){
+      .pad-grid,.bgm-list{grid-template-columns:1fr}
+      .sound-pad{min-height:132px}
+      .panel-body,.panel-head{padding:14px}
+      .soundcheck-grid{grid-template-columns:1fr}
+      .shortcut-strip{font-size:11px;gap:9px}
+      .bottom-bar{grid-template-columns:1fr}
+      .shortcut-strip{grid-column:auto}
+      .editor-grid{grid-template-columns:1fr}
+    }
+
+    /* 향후 행사 진행표 모듈을 추가할 위치 */
+    #scheduleModuleMount{display:none}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">ER</div>
+      <div>
+        <h1>Event Remote</h1>
+        <p>행사용 사운드 콘솔 · 반응형 · 오프라인 사용 가능</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="now-playing" id="nowPlaying">NOW · <strong>대기 중</strong></div>
+      <button class="icon-btn" id="settingsBtn" title="설정">⚙️</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="stack">
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>효과음 패드</h2>
+            <span>1~9 단축키 · 버튼별 재생 방식 설정 가능</span>
+          </div>
+          <div class="head-actions">
+            <button class="fade-btn" id="fadeSfxBtn">↘ 효과음 Fade</button>
+            <button class="small-btn" id="stopSfxBtn">■ 효과음 즉시 정지</button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="pad-grid" id="padGrid"></div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>BGM</h2>
+            <span>Q/W/E/R 선택 · Space 재생/일시정지 · F 페이드아웃</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="bgm-list" id="bgmList"></div>
+
+          <div class="transport">
+            <div class="transport-top">
+              <div class="transport-title" id="transportTitle">BGM 미선택</div>
+              <button id="bgmToggleBtn">▶ 재생</button>
+              <button id="bgmStopBtn">■ 정지</button>
+              <button class="fade" id="fadeBtn">↘ BGM 페이드</button>
+            </div>
+            <div class="progress-row">
+              <span id="currentTime">00:00</span>
+              <div class="progress"><i id="progressBar"></i></div>
+              <span id="durationTime">00:00</span>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <div id="scheduleModuleMount" aria-hidden="true"></div>
+    </section>
+
+    <aside class="stack side-stack">
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>운영 메모</h2>
+            <span>자동 저장</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <textarea class="memo" id="memo" placeholder="예) 팀장님 멘트 끝나면 시상식 BGM → 두구두구 준비&#10;&#10;현장에서 바로 볼 NEXT CUE 메모를 적어두세요."></textarea>
+          <div class="memo-footer">
+            <span id="memoStatus">저장됨</span>
+            <span>브라우저에 자동 저장</span>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel" id="soundcheckPanel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>음향 체크</h2>
+            <span>브라우저 테스트 톤</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="soundcheck-grid">
+            <button class="test-btn" data-pan="-1">L 왼쪽</button>
+            <button class="test-btn" data-pan="0">C 중앙</button>
+            <button class="test-btn" data-pan="1">R 오른쪽</button>
+          </div>
+          <p class="hint">500Hz 테스트 톤을 약 0.8초 재생합니다. 스피커 연결 상태와 좌/우 채널 확인용입니다. 오디오 장치 또는 브라우저에 따라 좌우 분리가 제한될 수 있습니다.</p>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>볼륨</h2>
+            <span>효과음 / BGM 분리</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="control-grid">
+            <div class="control-box">
+              <h3>효과음</h3>
+              <div class="range-row">
+                <span>🔊</span>
+                <input type="range" id="sfxVolume" min="0" max="100" value="80" />
+                <span id="sfxVolumeValue">80%</span>
+              </div>
+            </div>
+            <div class="control-box">
+              <h3>BGM</h3>
+              <div class="range-row">
+                <span>🎵</span>
+                <input type="range" id="bgmVolume" min="0" max="100" value="45" />
+                <span id="bgmVolumeValue">45%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel">
+        <div class="panel-head">
+          <div class="panel-title">
+            <h2>상태</h2>
+            <span>현장 체크</span>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="status-list">
+            <div class="status-item"><span>설정 자동 저장</span><span class="status-pill">ON</span></div>
+            <div class="status-item"><span>오디오 파일 영구 저장</span><span class="status-pill" id="dbStatus">확인 중</span></div>
+            <div class="status-item"><span>DUCK</span><span class="status-pill" id="duckStatus">ON</span></div>
+            <div class="status-item"><span>연타 방지</span><span class="status-pill" id="spamStatus">ON</span></div>
+          </div>
+        </div>
+      </article>
+    </aside>
+  </main>
+
+  <footer class="bottom-bar">
+    <div class="shortcut-strip">
+      <span><b>1~9</b> 효과음</span>
+      <span><b>Q/W/E/R</b> BGM</span>
+      <span><b>Space</b> BGM 재생/정지</span>
+      <span><b>F</b> BGM Fade</span>
+      <span><b>Shift+F</b> 효과음 Fade</span>
+      <span><b>Shift+ESC</b> 전체 Fade</span>
+      <span><b>ESC</b> 즉시 정지</span>
+    </div>
+    <button class="master-fade" id="masterFadeBtn">↘ 전체 Fade</button>
+    <button class="stop-all" id="stopAllBtn">⏹ 전체 정지 · ESC</button>
+  </footer>
+</div>
+
+<dialog id="settingsDialog">
+  <div class="modal-head">
+    <h2>설정</h2>
+    <button class="icon-btn" id="closeSettingsBtn">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="setting">
+      <label>
+        <strong>같은 효과음 연타 방지</strong>
+        <span>같은 버튼을 너무 빠르게 반복 입력했을 때 오작동을 줄입니다.</span>
+      </label>
+      <input type="number" id="antiSpamMs" min="0" max="5000" step="50" />
+    </div>
+    <div class="setting">
+      <label>
+        <strong>효과음 Fade 시간</strong>
+        <span>효과음 Fade 버튼을 눌렀을 때 현재 재생 중인 모든 효과음이 줄어드는 시간입니다.</span>
+      </label>
+      <input type="number" id="sfxFadeSeconds" min="0.2" max="15" step="0.1" />
+    </div>
+    <div class="setting">
+      <label>
+        <strong>BGM Fade 시간</strong>
+        <span>BGM Fade 버튼을 눌렀을 때 줄어드는 시간입니다.</span>
+      </label>
+      <input type="number" id="fadeSeconds" min="0.5" max="15" step="0.5" />
+    </div>
+    <div class="setting">
+      <label>
+        <strong>전체 Fade 시간</strong>
+        <span>효과음과 BGM을 동시에 자연스럽게 내릴 때 사용합니다.</span>
+      </label>
+      <input type="number" id="masterFadeSeconds" min="0.5" max="15" step="0.5" />
+    </div>
+    <div class="setting">
+      <label>
+        <strong>BGM DUCK</strong>
+        <span>효과음 재생 중 BGM 볼륨을 자동으로 낮추고, 효과음이 끝나면 원래 볼륨으로 복귀합니다.</span>
+      </label>
+      <input type="checkbox" id="duckEnabled" />
+    </div>
+    <div class="setting">
+      <label>
+        <strong>DUCK 볼륨</strong>
+        <span>효과음 재생 중 BGM을 원래 볼륨의 몇 %까지 낮출지 설정합니다.</span>
+      </label>
+      <input type="number" id="duckPercent" min="0" max="100" step="5" />
+    </div>
+    <div class="setting">
+      <label>
+        <strong>음향 체크 패널 표시</strong>
+        <span>필요하지 않을 때 화면에서 숨길 수 있습니다.</span>
+      </label>
+      <input type="checkbox" id="showSoundcheck" />
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="danger-btn" id="resetBtn">설정/음원 초기화</button>
+    <button class="small-btn" id="saveSettingsBtn">저장하고 닫기</button>
+  </div>
+</dialog>
+
+<dialog id="slotEditorDialog">
+  <div class="modal-head">
+    <h2>효과음 버튼 편집</h2>
+    <button class="icon-btn" id="closeSlotEditorBtn">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="editor-grid">
+      <div class="editor-field editor-icon">
+        <label for="slotEmoji">아이콘</label>
+        <input id="slotEmoji" maxlength="8" placeholder="👏" />
+      </div>
+      <div class="editor-field">
+        <label for="slotName">버튼 이름</label>
+        <input id="slotName" maxlength="30" placeholder="박수" />
+      </div>
+      <div class="editor-field" style="grid-column:1 / -1">
+        <label for="slotMode">재생 방식</label>
+        <select id="slotMode">
+          <option value="overlap">중복 재생 허용</option>
+          <option value="restart">다시 누르면 처음부터 재생</option>
+          <option value="single">재생 중에는 다시 누르지 않음</option>
+          <option value="toggle">다시 누르면 즉시 정지</option>
+        </select>
+      </div>
+    </div>
+    <div class="editor-note">
+      추천: 짧은 효과음은 <b>다시 누르면 처음부터</b>, 긴 박수/환호는 <b>재생 중에는 다시 누르지 않음</b>이 안전합니다.
+    </div>
+  </div>
+  <div class="modal-foot">
+    <button class="small-btn" id="restoreSlotBtn">기본 이름으로</button>
+    <button class="small-btn" id="saveSlotBtn">저장</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  "use strict";
+
+  const SFX_DEFAULTS = [
+    { id:"sfx-applause", name:"박수", emoji:"👏", key:"1", mode:"single" },
+    { id:"sfx-big-applause", name:"큰 박수", emoji:"👏👏", key:"2", mode:"single" },
+    { id:"sfx-cheer", name:"환호", emoji:"🎉", key:"3", mode:"single" },
+    { id:"sfx-drumroll", name:"두구두구", emoji:"🥁", key:"4", mode:"restart" },
+    { id:"sfx-tada", name:"짜잔", emoji:"✨", key:"5", mode:"restart" },
+    { id:"sfx-correct", name:"정답", emoji:"✅", key:"6", mode:"restart" },
+    { id:"sfx-wrong", name:"땡", emoji:"❌", key:"7", mode:"restart" },
+    { id:"sfx-ding", name:"띵동", emoji:"🔔", key:"8", mode:"restart" },
+    { id:"sfx-impact", name:"임팩트", emoji:"💥", key:"9", mode:"restart" }
+  ];
+
+  const BGM_SLOTS = [
+    { id:"bgm-opening", name:"오프닝", key:"Q" },
+    { id:"bgm-break", name:"휴식", key:"W" },
+    { id:"bgm-awards", name:"시상식", key:"E" },
+    { id:"bgm-ending", name:"엔딩", key:"R" }
+  ];
+
+  const DEFAULT_SETTINGS = {
+    sfxVolume: 80,
+    bgmVolume: 45,
+    antiSpamMs: 550,
+    sfxFadeSeconds: 1.5,
+    fadeSeconds: 3,
+    masterFadeSeconds: 2.5,
+    duckEnabled: true,
+    duckPercent: 35,
+    showSoundcheck: true
+  };
+
+  const state = {
+    settings: { ...DEFAULT_SETTINGS },
+    sfxSlots: SFX_DEFAULTS.map(s => ({...s})),
+    db: null,
+    blobUrls: new Map(),
+    fileNames: new Map(),
+    activeSfx: new Map(), // Audio -> { slotId, baseVolume, fadeTimer }
+    lastPlayedAt: new Map(),
+    currentBgmId: null,
+    bgmAudio: new Audio(),
+    bgmFadeTimer: null,
+    bgmDuckRampTimer: null,
+    masterFading: false,
+    audioCtx: null,
+    editingSlotId: null
+  };
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => [...document.querySelectorAll(sel)];
+
+  function toast(message) {
+    const el = $("#toast");
+    el.textContent = message;
+    el.classList.add("show");
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function escapeHtml(text="") {
+    return String(text).replace(/[&<>"']/g, s => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+    }[s]));
+  }
+
+  function loadSettings() {
+    try {
+      const saved = JSON.parse(localStorage.getItem("eventRemoteSettings") || "null");
+      state.settings = { ...DEFAULT_SETTINGS, ...(saved || {}) };
+    } catch {
+      state.settings = { ...DEFAULT_SETTINGS };
+    }
+
+    try {
+      const savedSlots = JSON.parse(localStorage.getItem("eventRemoteSfxSlots") || "null");
+      if (Array.isArray(savedSlots)) {
+        state.sfxSlots = SFX_DEFAULTS.map(def => {
+          const found = savedSlots.find(s => s.id === def.id);
+          return { ...def, ...(found || {}) };
+        });
+      }
+    } catch {
+      state.sfxSlots = SFX_DEFAULTS.map(s => ({...s}));
+    }
+
+    $("#memo").value = localStorage.getItem("eventRemoteMemo") || "";
+  }
+
+  function saveSettings() {
+    localStorage.setItem("eventRemoteSettings", JSON.stringify(state.settings));
+  }
+
+  function saveSfxSlots() {
+    localStorage.setItem("eventRemoteSfxSlots", JSON.stringify(state.sfxSlots));
+  }
+
+  function applySettingsToUI() {
+    $("#sfxVolume").value = state.settings.sfxVolume;
+    $("#bgmVolume").value = state.settings.bgmVolume;
+    $("#sfxVolumeValue").textContent = state.settings.sfxVolume + "%";
+    $("#bgmVolumeValue").textContent = state.settings.bgmVolume + "%";
+
+    $("#antiSpamMs").value = state.settings.antiSpamMs;
+    $("#sfxFadeSeconds").value = state.settings.sfxFadeSeconds;
+    $("#fadeSeconds").value = state.settings.fadeSeconds;
+    $("#masterFadeSeconds").value = state.settings.masterFadeSeconds;
+    $("#duckEnabled").checked = !!state.settings.duckEnabled;
+    $("#duckPercent").value = state.settings.duckPercent;
+    $("#showSoundcheck").checked = !!state.settings.showSoundcheck;
+
+    $("#soundcheckPanel").classList.toggle("hidden", !state.settings.showSoundcheck);
+
+    $("#spamStatus").textContent = Number(state.settings.antiSpamMs) > 0 ? "ON" : "OFF";
+    $("#spamStatus").classList.toggle("off", Number(state.settings.antiSpamMs) <= 0);
+
+    $("#duckStatus").textContent = state.settings.duckEnabled ? `ON · ${state.settings.duckPercent}%` : "OFF";
+    $("#duckStatus").classList.toggle("off", !state.settings.duckEnabled);
+
+    if (!state.masterFading && !state.bgmFadeTimer) {
+      setBgmTargetVolume(false, 0);
+    }
+  }
+
+  function openDb() {
+    return new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) return reject(new Error("IndexedDB unsupported"));
+      const req = indexedDB.open("EventRemoteAudioDB", 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains("audio")) {
+          db.createObjectStore("audio", { keyPath: "id" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  function dbPutAudio(id, file) {
+    return new Promise((resolve, reject) => {
+      const tx = state.db.transaction("audio", "readwrite");
+      tx.objectStore("audio").put({
+        id,
+        name: file.name,
+        type: file.type,
+        blob: file,
+        updatedAt: Date.now()
+      });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function dbGetAllAudio() {
+    return new Promise((resolve, reject) => {
+      const tx = state.db.transaction("audio", "readonly");
+      const req = tx.objectStore("audio").getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  function dbDeleteAudio(id) {
+    return new Promise((resolve, reject) => {
+      const tx = state.db.transaction("audio", "readwrite");
+      tx.objectStore("audio").delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function dbClearAudio() {
+    return new Promise((resolve, reject) => {
+      const tx = state.db.transaction("audio", "readwrite");
+      tx.objectStore("audio").clear();
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function setBlobUrl(id, blob, name) {
+    if (state.blobUrls.has(id)) URL.revokeObjectURL(state.blobUrls.get(id));
+    state.blobUrls.set(id, URL.createObjectURL(blob));
+    state.fileNames.set(id, name || "오디오 파일");
+  }
+
+  function makeFileInput(slotId) {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "audio/*,.mp3,.wav,.m4a,.ogg,.aac,.flac";
+    input.hidden = true;
+    input.addEventListener("change", async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        if (!state.db) throw new Error("DB unavailable");
+        await dbPutAudio(slotId, file);
+        setBlobUrl(slotId, file, file.name);
+
+        if (state.currentBgmId === slotId) {
+          state.bgmAudio.pause();
+          state.bgmAudio.src = state.blobUrls.get(slotId);
+          state.bgmAudio.load();
+          setBgmTargetVolume(false, 0);
+        }
+
+        renderAll();
+        toast("음원 연결 완료: " + file.name);
+      } catch (err) {
+        console.error(err);
+        toast("음원 저장에 실패했습니다.");
+      } finally {
+        input.value = "";
+      }
+    });
+    document.body.appendChild(input);
+    return input;
+  }
+
+  const fileInputs = new Map();
+  function getFileInput(id) {
+    if (!fileInputs.has(id)) fileInputs.set(id, makeFileInput(id));
+    return fileInputs.get(id);
+  }
+
+  function modeLabel(mode) {
+    return {
+      overlap: "중복 재생",
+      restart: "처음부터 재생",
+      single: "재생 중 입력 무시",
+      toggle: "다시 누르면 정지"
+    }[mode] || "재생";
+  }
+
+  function renderPads() {
+    const grid = $("#padGrid");
+    grid.innerHTML = "";
+
+    state.sfxSlots.forEach(slot => {
+      const hasFile = state.blobUrls.has(slot.id);
+      const pad = document.createElement("div");
+      pad.className = "sound-pad" + (hasFile ? "" : " unassigned");
+      pad.dataset.slotId = slot.id;
+      pad.setAttribute("role", "button");
+      pad.setAttribute("tabindex", "0");
+      pad.setAttribute("aria-label", slot.name + " 효과음 재생");
+
+      pad.innerHTML = `
+        <span class="hotkey">${slot.key}</span>
+        <span class="emoji">${escapeHtml(slot.emoji || "🔊")}</span>
+        <span class="name">${escapeHtml(slot.name)}</span>
+        <span class="mode">${escapeHtml(modeLabel(slot.mode))}</span>
+        <span class="file-status">${hasFile ? escapeHtml(state.fileNames.get(slot.id)) : "파일 미연결"}</span>
+        <span class="slot-actions">
+          <button type="button" data-action="assign">${hasFile ? "파일 변경" : "파일 연결"}</button>
+          <button type="button" data-action="edit">편집</button>
+          ${hasFile ? '<button type="button" data-action="remove">해제</button>' : ""}
+        </span>
+      `;
+
+      pad.addEventListener("click", (e) => {
+        const action = e.target.closest("[data-action]")?.dataset.action;
+        if (action === "assign") {
+          e.stopPropagation();
+          getFileInput(slot.id).click();
+          return;
+        }
+        if (action === "edit") {
+          e.stopPropagation();
+          openSlotEditor(slot.id);
+          return;
+        }
+        if (action === "remove") {
+          e.stopPropagation();
+          removeAudio(slot.id);
+          return;
+        }
+        playSfx(slot.id);
+      });
+
+      pad.addEventListener("keydown", (e) => {
+        if ((e.key === "Enter" || e.key === " ") && !e.target.closest("[data-action]")) {
+          e.preventDefault();
+          playSfx(slot.id);
+        }
+      });
+
+      grid.appendChild(pad);
+    });
+  }
+
+  function renderBgm() {
+    const list = $("#bgmList");
+    list.innerHTML = "";
+
+    BGM_SLOTS.forEach(slot => {
+      const hasFile = state.blobUrls.has(slot.id);
+      const card = document.createElement("div");
+      card.className = "bgm-card" + (state.currentBgmId === slot.id ? " active" : "");
+      card.innerHTML = `
+        <div class="bgm-name-row">
+          <span class="bgm-name">${slot.name}</span>
+          <span class="keycap">${slot.key}</span>
+        </div>
+        <div class="bgm-file">${hasFile ? escapeHtml(state.fileNames.get(slot.id)) : "파일 미연결"}</div>
+        <div class="bgm-actions">
+          <button type="button" data-bgm-action="select">${state.currentBgmId === slot.id ? "선택됨" : "선택"}</button>
+          <button type="button" data-bgm-action="assign">${hasFile ? "변경" : "연결"}</button>
+          ${hasFile ? '<button type="button" data-bgm-action="remove">해제</button>' : ""}
+        </div>
+      `;
+
+      card.addEventListener("click", (e) => {
+        const action = e.target.closest("[data-bgm-action]")?.dataset.bgmAction;
+        if (!action) return;
+        if (action === "select") selectBgm(slot.id, true);
+        if (action === "assign") getFileInput(slot.id).click();
+        if (action === "remove") removeAudio(slot.id);
+      });
+      list.appendChild(card);
+    });
+  }
+
+  function renderAll() {
+    renderPads();
+    renderBgm();
+    updateTransport();
+  }
+
+  async function removeAudio(id) {
+    try {
+      stopSfxBySlot(id, true);
+
+      if (state.currentBgmId === id) {
+        stopBgm();
+        state.currentBgmId = null;
+        state.bgmAudio.removeAttribute("src");
+        state.bgmAudio.load();
+      }
+
+      if (state.db) await dbDeleteAudio(id);
+      if (state.blobUrls.has(id)) URL.revokeObjectURL(state.blobUrls.get(id));
+      state.blobUrls.delete(id);
+      state.fileNames.delete(id);
+      renderAll();
+      toast("음원 연결을 해제했습니다.");
+    } catch (err) {
+      console.error(err);
+      toast("음원 해제에 실패했습니다.");
+    }
+  }
+
+  function flashPad(id) {
+    const el = document.querySelector(`.sound-pad[data-slot-id="${CSS.escape(id)}"]`);
+    if (!el) return;
+    el.classList.add("playing");
+    clearTimeout(el._flashTimer);
+    el._flashTimer = setTimeout(() => el.classList.remove("playing"), 180);
+  }
+
+  function activeAudiosForSlot(slotId) {
+    const items = [];
+    state.activeSfx.forEach((meta, audio) => {
+      if (meta.slotId === slotId) items.push(audio);
+    });
+    return items;
+  }
+
+  function playSfx(id) {
+    const url = state.blobUrls.get(id);
+    if (!url) {
+      toast("먼저 이 버튼에 음원 파일을 연결하세요.");
+      return;
+    }
+
+    const slot = state.sfxSlots.find(s => s.id === id);
+    if (!slot) return;
+
+    const now = performance.now();
+    const last = state.lastPlayedAt.get(id) || 0;
+    const gap = Number(state.settings.antiSpamMs) || 0;
+    if (gap > 0 && now - last < gap) {
+      flashPad(id);
+      return;
+    }
+    state.lastPlayedAt.set(id, now);
+
+    const existing = activeAudiosForSlot(id);
+
+    if (slot.mode === "single" && existing.length) {
+      flashPad(id);
+      return;
+    }
+
+    if (slot.mode === "toggle" && existing.length) {
+      stopSfxBySlot(id, true);
+      flashPad(id);
+      return;
+    }
+
+    if (slot.mode === "restart" && existing.length) {
+      stopSfxBySlot(id, true);
+    }
+
+    const audio = new Audio(url);
+    audio.volume = state.settings.sfxVolume / 100;
+    audio.preload = "auto";
+
+    state.activeSfx.set(audio, {
+      slotId: id,
+      baseVolume: state.settings.sfxVolume / 100,
+      fadeTimer: null
+    });
+
+    $("#nowPlaying").innerHTML = `NOW · <strong>${escapeHtml(slot.emoji || "🔊")} ${escapeHtml(slot.name)}</strong>`;
+    flashPad(id);
+    updateDuckState();
+
+    const cleanup = () => cleanupSfxAudio(audio);
+    audio.addEventListener("ended", cleanup, { once:true });
+    audio.addEventListener("error", cleanup, { once:true });
+
+    audio.play().catch(err => {
+      console.error(err);
+      cleanup();
+      toast("재생할 수 없는 오디오 파일입니다.");
+    });
+  }
+
+  function cleanupSfxAudio(audio) {
+    const meta = state.activeSfx.get(audio);
+    if (!meta) return;
+
+    if (meta.fadeTimer) cancelAnimationFrame(meta.fadeTimer);
+    state.activeSfx.delete(audio);
+
+    if (!state.masterFading) updateDuckState();
+
+    if (state.activeSfx.size === 0 && state.bgmAudio.paused) {
+      $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+    } else if (state.activeSfx.size === 0 && !state.bgmAudio.paused) {
+      updateTransport();
+    }
+  }
+
+  function stopSfxBySlot(slotId, immediate=true) {
+    const audios = activeAudiosForSlot(slotId);
+    audios.forEach(audio => {
+      const meta = state.activeSfx.get(audio);
+      if (meta?.fadeTimer) cancelAnimationFrame(meta.fadeTimer);
+      try {
+        audio.pause();
+        audio.currentTime = 0;
+      } catch {}
+      state.activeSfx.delete(audio);
+    });
+
+    if (!state.masterFading) updateDuckState();
+    if (state.activeSfx.size === 0 && state.bgmAudio.paused) {
+      $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+    }
+  }
+
+  function stopSfx() {
+    state.activeSfx.forEach((meta, audio) => {
+      if (meta.fadeTimer) cancelAnimationFrame(meta.fadeTimer);
+      try { audio.pause(); audio.currentTime = 0; } catch {}
+    });
+    state.activeSfx.clear();
+    if (!state.masterFading) updateDuckState();
+    if (state.bgmAudio.paused) $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+    else updateTransport();
+  }
+
+  function fadeSingleAudio(audio, durationMs, onDone) {
+    const meta = state.activeSfx.get(audio);
+    if (!meta) {
+      onDone?.();
+      return;
+    }
+
+    if (meta.fadeTimer) cancelAnimationFrame(meta.fadeTimer);
+    const start = performance.now();
+    const startVolume = audio.volume;
+
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      audio.volume = Math.max(0, startVolume * (1 - t));
+
+      if (t < 1 && state.activeSfx.has(audio)) {
+        meta.fadeTimer = requestAnimationFrame(tick);
+      } else {
+        meta.fadeTimer = null;
+        try { audio.pause(); audio.currentTime = 0; } catch {}
+        state.activeSfx.delete(audio);
+        onDone?.();
+      }
+    };
+
+    meta.fadeTimer = requestAnimationFrame(tick);
+  }
+
+  function fadeOutSfx(customSeconds=null) {
+    if (state.activeSfx.size === 0) {
+      toast("재생 중인 효과음이 없습니다.");
+      return;
+    }
+
+    const durationMs = Math.max(150, Number(customSeconds ?? state.settings.sfxFadeSeconds) * 1000);
+    const audios = [...state.activeSfx.keys()];
+    let remaining = audios.length;
+
+    audios.forEach(audio => {
+      fadeSingleAudio(audio, durationMs, () => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          if (!state.masterFading) updateDuckState();
+          if (state.bgmAudio.paused) $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+          else updateTransport();
+        }
+      });
+    });
+  }
+
+  function currentBaseBgmVolume() {
+    return Math.max(0, Math.min(1, Number(state.settings.bgmVolume) / 100));
+  }
+
+  function desiredBgmVolume() {
+    const base = currentBaseBgmVolume();
+    if (
+      state.settings.duckEnabled &&
+      state.activeSfx.size > 0 &&
+      !state.masterFading &&
+      !state.bgmFadeTimer
+    ) {
+      return base * (Math.max(0, Math.min(100, Number(state.settings.duckPercent))) / 100);
+    }
+    return base;
+  }
+
+  function rampBgmVolume(target, durationMs=180) {
+    if (state.bgmDuckRampTimer) cancelAnimationFrame(state.bgmDuckRampTimer);
+    state.bgmDuckRampTimer = null;
+
+    target = Math.max(0, Math.min(1, target));
+
+    if (durationMs <= 0 || state.bgmAudio.paused) {
+      state.bgmAudio.volume = target;
+      return;
+    }
+
+    const startVolume = state.bgmAudio.volume;
+    const start = performance.now();
+
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - t, 3);
+      state.bgmAudio.volume = startVolume + (target - startVolume) * eased;
+
+      if (t < 1 && !state.masterFading && !state.bgmFadeTimer) {
+        state.bgmDuckRampTimer = requestAnimationFrame(tick);
+      } else {
+        state.bgmDuckRampTimer = null;
+      }
+    };
+
+    state.bgmDuckRampTimer = requestAnimationFrame(tick);
+  }
+
+  function setBgmTargetVolume(smooth=true, durationMs=null) {
+    if (state.masterFading || state.bgmFadeTimer) return;
+    const target = desiredBgmVolume();
+    rampBgmVolume(target, smooth ? (durationMs ?? (state.activeSfx.size ? 150 : 350)) : 0);
+  }
+
+  function updateDuckState() {
+    setBgmTargetVolume(true);
+  }
+
+  function clearBgmFade() {
+    if (state.bgmFadeTimer) cancelAnimationFrame(state.bgmFadeTimer);
+    state.bgmFadeTimer = null;
+  }
+
+  function selectBgm(id, autoplay=false) {
+    if (!state.blobUrls.has(id)) {
+      toast("먼저 이 BGM 슬롯에 음원 파일을 연결하세요.");
+      return;
+    }
+
+    clearBgmFade();
+    state.masterFading = false;
+
+    const wasPlaying = !state.bgmAudio.paused;
+    if (state.currentBgmId !== id) {
+      state.bgmAudio.pause();
+      state.bgmAudio.currentTime = 0;
+      state.currentBgmId = id;
+      state.bgmAudio.src = state.blobUrls.get(id);
+      state.bgmAudio.load();
+    }
+
+    setBgmTargetVolume(false);
+    renderBgm();
+    updateTransport();
+
+    if (autoplay || wasPlaying) {
+      state.bgmAudio.play().then(() => setBgmTargetVolume(true)).catch(err => {
+        console.error(err);
+        toast("BGM을 재생할 수 없습니다.");
+      });
+    }
+  }
+
+  function toggleBgm() {
+    if (!state.currentBgmId) {
+      toast("먼저 BGM을 선택하세요.");
+      return;
+    }
+
+    clearBgmFade();
+    state.masterFading = false;
+
+    if (state.bgmAudio.paused) {
+      setBgmTargetVolume(false);
+      state.bgmAudio.play().then(() => setBgmTargetVolume(true)).catch(() => toast("BGM을 재생할 수 없습니다."));
+    } else {
+      state.bgmAudio.pause();
+    }
+  }
+
+  function stopBgm() {
+    clearBgmFade();
+    if (state.bgmDuckRampTimer) cancelAnimationFrame(state.bgmDuckRampTimer);
+    state.bgmDuckRampTimer = null;
+
+    state.bgmAudio.pause();
+    try { state.bgmAudio.currentTime = 0; } catch {}
+    state.bgmAudio.volume = currentBaseBgmVolume();
+    updateTransport();
+
+    if (state.activeSfx.size === 0) $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+  }
+
+  function fadeOutBgm(customSeconds=null, silentIfNone=false) {
+    if (!state.currentBgmId || state.bgmAudio.paused) {
+      if (!silentIfNone) toast("재생 중인 BGM이 없습니다.");
+      return Promise.resolve();
+    }
+
+    clearBgmFade();
+    if (state.bgmDuckRampTimer) cancelAnimationFrame(state.bgmDuckRampTimer);
+    state.bgmDuckRampTimer = null;
+
+    const durationMs = Math.max(300, Number(customSeconds ?? state.settings.fadeSeconds) * 1000);
+    const start = performance.now();
+    const startVolume = state.bgmAudio.volume;
+
+    return new Promise(resolve => {
+      const tick = (now) => {
+        const t = Math.min(1, (now - start) / durationMs);
+        state.bgmAudio.volume = Math.max(0, startVolume * (1 - t));
+
+        if (t < 1) {
+          state.bgmFadeTimer = requestAnimationFrame(tick);
+        } else {
+          state.bgmFadeTimer = null;
+          state.bgmAudio.pause();
+          state.bgmAudio.currentTime = 0;
+          state.bgmAudio.volume = currentBaseBgmVolume();
+          updateTransport();
+          if (state.activeSfx.size === 0) $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+          resolve();
+        }
+      };
+      state.bgmFadeTimer = requestAnimationFrame(tick);
+    });
+  }
+
+  function masterFade() {
+    const hasSfx = state.activeSfx.size > 0;
+    const hasBgm = state.currentBgmId && !state.bgmAudio.paused;
+
+    if (!hasSfx && !hasBgm) {
+      toast("재생 중인 소리가 없습니다.");
+      return;
+    }
+
+    state.masterFading = true;
+    if (state.bgmDuckRampTimer) cancelAnimationFrame(state.bgmDuckRampTimer);
+    state.bgmDuckRampTimer = null;
+
+    const sec = Math.max(0.5, Number(state.settings.masterFadeSeconds) || 2.5);
+    const ms = sec * 1000;
+
+    const tasks = [];
+
+    if (hasBgm) {
+      tasks.push(fadeOutBgm(sec, true));
+    }
+
+    if (hasSfx) {
+      tasks.push(new Promise(resolve => {
+        const audios = [...state.activeSfx.keys()];
+        let remaining = audios.length;
+        audios.forEach(audio => {
+          fadeSingleAudio(audio, ms, () => {
+            remaining -= 1;
+            if (remaining <= 0) resolve();
+          });
+        });
+      }));
+    }
+
+    Promise.all(tasks).finally(() => {
+      state.masterFading = false;
+      state.activeSfx.clear();
+      state.bgmAudio.volume = currentBaseBgmVolume();
+      $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+    });
+  }
+
+  function stopAll() {
+    state.masterFading = false;
+    clearBgmFade();
+    if (state.bgmDuckRampTimer) cancelAnimationFrame(state.bgmDuckRampTimer);
+    state.bgmDuckRampTimer = null;
+
+    stopSfx();
+    stopBgm();
+
+    $("#nowPlaying").innerHTML = "NOW · <strong>전체 정지</strong>";
+    setTimeout(() => {
+      if (state.activeSfx.size === 0 && state.bgmAudio.paused) {
+        $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+      }
+    }, 650);
+  }
+
+  function formatTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "00:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return String(m).padStart(2,"0") + ":" + String(s).padStart(2,"0");
+  }
+
+  function updateTransport() {
+    const slot = BGM_SLOTS.find(s => s.id === state.currentBgmId);
+    $("#transportTitle").textContent = slot ? `${slot.name} · ${state.fileNames.get(slot.id) || ""}` : "BGM 미선택";
+    $("#bgmToggleBtn").textContent = state.bgmAudio.paused ? "▶ 재생" : "⏸ 일시정지";
+    $("#currentTime").textContent = formatTime(state.bgmAudio.currentTime);
+    $("#durationTime").textContent = formatTime(state.bgmAudio.duration);
+
+    const ratio = state.bgmAudio.duration ? (state.bgmAudio.currentTime / state.bgmAudio.duration) * 100 : 0;
+    $("#progressBar").style.width = Math.max(0, Math.min(100, ratio)) + "%";
+
+    if (slot && !state.bgmAudio.paused && state.activeSfx.size === 0) {
+      $("#nowPlaying").innerHTML = `NOW · <strong>🎵 ${escapeHtml(slot.name)}</strong>`;
+    }
+  }
+
+  function openSlotEditor(slotId) {
+    const slot = state.sfxSlots.find(s => s.id === slotId);
+    if (!slot) return;
+
+    state.editingSlotId = slotId;
+    $("#slotEmoji").value = slot.emoji || "";
+    $("#slotName").value = slot.name || "";
+    $("#slotMode").value = slot.mode || "restart";
+    $("#slotEditorDialog").showModal();
+  }
+
+  function saveSlotEditor() {
+    const slot = state.sfxSlots.find(s => s.id === state.editingSlotId);
+    if (!slot) return;
+
+    const name = $("#slotName").value.trim();
+    slot.name = name || "효과음";
+    slot.emoji = $("#slotEmoji").value.trim() || "🔊";
+    slot.mode = $("#slotMode").value;
+
+    saveSfxSlots();
+    renderPads();
+    $("#slotEditorDialog").close();
+    toast("효과음 버튼 설정을 저장했습니다.");
+  }
+
+  function restoreSlotEditor() {
+    const def = SFX_DEFAULTS.find(s => s.id === state.editingSlotId);
+    if (!def) return;
+
+    $("#slotEmoji").value = def.emoji;
+    $("#slotName").value = def.name;
+    $("#slotMode").value = def.mode;
+  }
+
+  async function playTestTone(pan=0) {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) {
+        toast("이 브라우저는 테스트 톤을 지원하지 않습니다.");
+        return;
+      }
+
+      if (!state.audioCtx) state.audioCtx = new AudioCtx();
+      if (state.audioCtx.state === "suspended") await state.audioCtx.resume();
+
+      const ctx = state.audioCtx;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(500, ctx.currentTime);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.03);
+      gain.gain.setValueAtTime(0.18, ctx.currentTime + 0.65);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
+
+      osc.connect(gain);
+      if (panner) {
+        panner.pan.setValueAtTime(Number(pan), ctx.currentTime);
+        gain.connect(panner).connect(ctx.destination);
+      } else {
+        gain.connect(ctx.destination);
+      }
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.82);
+    } catch (err) {
+      console.error(err);
+      toast("테스트 톤 재생에 실패했습니다.");
+    }
+  }
+
+  function bindEvents() {
+    $("#sfxVolume").addEventListener("input", e => {
+      state.settings.sfxVolume = Number(e.target.value);
+      $("#sfxVolumeValue").textContent = state.settings.sfxVolume + "%";
+
+      state.activeSfx.forEach((meta, audio) => {
+        meta.baseVolume = state.settings.sfxVolume / 100;
+        if (!meta.fadeTimer) audio.volume = meta.baseVolume;
+      });
+
+      saveSettings();
+    });
+
+    $("#bgmVolume").addEventListener("input", e => {
+      state.settings.bgmVolume = Number(e.target.value);
+      $("#bgmVolumeValue").textContent = state.settings.bgmVolume + "%";
+      if (!state.bgmFadeTimer && !state.masterFading) setBgmTargetVolume(false);
+      saveSettings();
+    });
+
+    $("#memo").addEventListener("input", () => {
+      $("#memoStatus").textContent = "저장 중…";
+      clearTimeout($("#memo")._saveTimer);
+      $("#memo")._saveTimer = setTimeout(() => {
+        localStorage.setItem("eventRemoteMemo", $("#memo").value);
+        $("#memoStatus").textContent = "저장됨";
+      }, 250);
+    });
+
+    $("#settingsBtn").addEventListener("click", () => $("#settingsDialog").showModal());
+    $("#closeSettingsBtn").addEventListener("click", () => $("#settingsDialog").close());
+
+    $("#saveSettingsBtn").addEventListener("click", () => {
+      state.settings.antiSpamMs = Math.max(0, Number($("#antiSpamMs").value) || 0);
+      state.settings.sfxFadeSeconds = Math.max(0.2, Number($("#sfxFadeSeconds").value) || 1.5);
+      state.settings.fadeSeconds = Math.max(0.5, Number($("#fadeSeconds").value) || 3);
+      state.settings.masterFadeSeconds = Math.max(0.5, Number($("#masterFadeSeconds").value) || 2.5);
+      state.settings.duckEnabled = $("#duckEnabled").checked;
+      state.settings.duckPercent = Math.max(0, Math.min(100, Number($("#duckPercent").value) || 0));
+      state.settings.showSoundcheck = $("#showSoundcheck").checked;
+
+      saveSettings();
+      applySettingsToUI();
+      $("#settingsDialog").close();
+      toast("설정을 저장했습니다.");
+    });
+
+    $("#resetBtn").addEventListener("click", async () => {
+      if (!confirm("설정, 메모, 버튼 이름/재생 방식, 연결한 모든 음원 파일을 초기화할까요?")) return;
+
+      stopAll();
+
+      try {
+        if (state.db) await dbClearAudio();
+      } catch {}
+
+      state.blobUrls.forEach(url => URL.revokeObjectURL(url));
+      state.blobUrls.clear();
+      state.fileNames.clear();
+
+      localStorage.removeItem("eventRemoteSettings");
+      localStorage.removeItem("eventRemoteMemo");
+      localStorage.removeItem("eventRemoteSfxSlots");
+
+      state.settings = { ...DEFAULT_SETTINGS };
+      state.sfxSlots = SFX_DEFAULTS.map(s => ({...s}));
+      state.currentBgmId = null;
+      state.bgmAudio.removeAttribute("src");
+      state.bgmAudio.load();
+
+      $("#memo").value = "";
+      applySettingsToUI();
+      renderAll();
+
+      $("#settingsDialog").close();
+      toast("초기화했습니다.");
+    });
+
+    $("#closeSlotEditorBtn").addEventListener("click", () => $("#slotEditorDialog").close());
+    $("#saveSlotBtn").addEventListener("click", saveSlotEditor);
+    $("#restoreSlotBtn").addEventListener("click", restoreSlotEditor);
+
+    $("#stopSfxBtn").addEventListener("click", stopSfx);
+    $("#fadeSfxBtn").addEventListener("click", () => fadeOutSfx());
+    $("#bgmToggleBtn").addEventListener("click", toggleBgm);
+    $("#bgmStopBtn").addEventListener("click", stopBgm);
+    $("#fadeBtn").addEventListener("click", () => fadeOutBgm());
+    $("#masterFadeBtn").addEventListener("click", masterFade);
+    $("#stopAllBtn").addEventListener("click", stopAll);
+
+    $$(".test-btn").forEach(btn => {
+      btn.addEventListener("click", () => playTestTone(btn.dataset.pan));
+    });
+
+    state.bgmAudio.addEventListener("timeupdate", updateTransport);
+    state.bgmAudio.addEventListener("loadedmetadata", updateTransport);
+    state.bgmAudio.addEventListener("play", () => {
+      setBgmTargetVolume(true);
+      updateTransport();
+    });
+    state.bgmAudio.addEventListener("pause", updateTransport);
+    state.bgmAudio.addEventListener("ended", () => {
+      state.bgmAudio.currentTime = 0;
+      state.bgmAudio.volume = currentBaseBgmVolume();
+      updateTransport();
+      if (state.activeSfx.size === 0) $("#nowPlaying").innerHTML = "NOW · <strong>대기 중</strong>";
+    });
+
+    window.addEventListener("keydown", e => {
+      const target = e.target;
+      const typing = target && (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
+        target.isContentEditable
+      );
+
+      if (e.key === "Escape") {
+        if ($("#settingsDialog").open || $("#slotEditorDialog").open) return;
+
+        e.preventDefault();
+        if (e.shiftKey) masterFade();
+        else stopAll();
+        return;
+      }
+
+      if (typing || $("#settingsDialog").open || $("#slotEditorDialog").open) return;
+
+      const key = e.key.toUpperCase();
+
+      const sfx = state.sfxSlots.find(s => s.key === key);
+      if (sfx) {
+        e.preventDefault();
+        playSfx(sfx.id);
+        return;
+      }
+
+      const bgm = BGM_SLOTS.find(s => s.key === key);
+      if (bgm) {
+        e.preventDefault();
+        selectBgm(bgm.id, true);
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault();
+        toggleBgm();
+        return;
+      }
+
+      if (key === "F") {
+        e.preventDefault();
+        if (e.shiftKey) fadeOutSfx();
+        else fadeOutBgm();
+      }
+    });
+
+    window.addEventListener("beforeunload", () => {
+      state.blobUrls.forEach(url => URL.revokeObjectURL(url));
+    });
+  }
+
+  async function init() {
+    loadSettings();
+    applySettingsToUI();
+    renderAll();
+    bindEvents();
+
+    try {
+      state.db = await openDb();
+      const rows = await dbGetAllAudio();
+      rows.forEach(row => setBlobUrl(row.id, row.blob, row.name));
+      $("#dbStatus").textContent = "ON";
+      $("#dbStatus").classList.remove("off");
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      $("#dbStatus").textContent = "OFF";
+      $("#dbStatus").classList.add("off");
+      toast("브라우저 영구 저장 기능을 사용할 수 없습니다.");
+    }
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
